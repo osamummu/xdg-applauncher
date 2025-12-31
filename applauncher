@@ -1,0 +1,566 @@
+#!/bin/env python3
+
+
+import gi
+gi.require_version('GLib', '2.0')
+gi.require_version('Gtk', '3.0')
+from gi.repository import Gtk, GdkPixbuf, Gdk, GObject, GLib
+from typing import Iterator
+import shutil
+import os
+import sys
+import glob
+import re
+import pathlib
+import subprocess
+
+
+
+THIS_DESKTOP_NAME = "sway"
+
+
+DEFAULT_MENU_DEFINITION = [
+    {
+        "title":                 "Development",
+        "categories_to_include": [ "Development" ],
+        "icon":                  "applications-engineering",
+    },
+    {
+        "title":                 "Education",
+        "categories_to_include": [ "Education" ],
+        "icon":                  "applications-science",
+    },
+    {
+        "title":                 "Game",
+        "categories_to_include": [ "Game" ],
+        "icon":                  "applications-games",
+    },
+    {
+        "title":                 "Internet",
+        "categories_to_include": [ "Network" ],
+        "icon":                  "applications-internet",
+    },
+    {
+        "title":                 "Graphics",
+        "categories_to_include": [ "Graphics" ],
+        "icon":                  "applications-graphics",
+    },
+    {
+        "title":                 "MultiMedia",
+        "categories_to_include": [ "AudioVideo", "Audio", "Video" ],
+        "icon":                  "applications-multimedia",
+    },
+    {
+        "title":                 "Office",
+        "categories_to_include": [ "Office" ],
+        "icon":                  "applications-office",
+    },
+    {
+        "title":                 "Science",
+        "categories_to_include": [ "Science" ],
+        "icon":                  "applications-science",
+    },
+    {
+        "title":                 "Accessories",
+        "categories_to_include": [ "Utility" ],
+        "icon":                  "applications-utilities",
+    },
+    {
+        "title":                 "Settings",
+        "categories_to_include": [ "Settings" ],
+        "icon":                  "applications-system",
+    },
+    {
+        "title":                 "System Tool",
+        "categories_to_include": [ "System" ],
+        "icon":                  "preferences-system",
+    },
+    {
+        "title":                 "Other",
+        "categories_to_include": [ "Other" ],
+        "icon":                  "applications-other",
+    },
+]
+
+
+class XdgIcon:
+    def __init__(self):
+        self.icon_theme = Gtk.IconTheme.get_default()
+
+    def into_icon_path(self, icon_name: str) -> str|None:
+        if os.path.isfile(icon_name):
+            return icon_name
+
+        maybe_iconinfo = self.icon_theme \
+            .lookup_icon(icon_name, 32, 0) \
+
+        if maybe_iconinfo is None: return
+        iconinfo = maybe_iconinfo
+
+        return iconinfo.get_filename()
+
+
+AppName: type = str
+DesktopFilePath: type = str
+
+class DesktopFile:
+    DEFAULT_DESKTOP_FILE_DIRS = [
+        "~/.local/share" + "/applications/",
+        "/usr/local/share/applications/",
+        "/usr/share/applications/",
+    ]
+
+    def __init__(self):
+        self.xdgicon = XdgIcon()
+
+
+    @classmethod
+    def iter_apps(
+            cls,
+    ) -> Iterator[tuple[AppName, DesktopFilePath]]:
+        desktop_file_set = set()
+
+        desktop_files = []
+        for app_dir in cls.DEFAULT_DESKTOP_FILE_DIRS:
+            app_dir = app_dir.replace("~", os.getenv("HOME"))
+            if not os.path.isdir(app_dir): continue
+            desktop_files.extend(glob.glob(app_dir + '/**/*.desktop', recursive=True))
+
+        for dsktp_file_path in desktop_files:
+            app_name = os.path.splitext(os.path.basename(dsktp_file_path))[0]
+            if not app_name in desktop_file_set:
+                desktop_file_set.add(app_name)
+                yield (app_name, dsktp_file_path)
+        return None
+
+
+    def parse_desktop_file(
+            self,
+            desktop_file_path,
+            options = { "terminal": 'foot', "lang_code": 'ja' }
+    ) -> dict|None:
+        appinfo = {
+            "show":                 True,
+            "categories":           [],
+            "keywords":             None,
+            "default_name":         None,
+            "locally_name":         None,
+            "default_generic_name": None,
+            "locally_generic_name": None,
+            "default_comment":      None,
+            "locally_comment":      None,
+            "cmd":                  None,
+            "icon_name":            None,
+            "cmd_working_dir":      None,
+        }
+
+        import configparser
+
+        ini = configparser.ConfigParser(interpolation=None)
+        ini.read(desktop_file_path)
+
+        if ini["Desktop Entry"] is None:
+            return None
+
+        entries = ini["Desktop Entry"]
+
+        # NoDisplay が True なら表示しない
+        if "NoDisplay" in entries:
+            appinfo["show"] = False
+
+        # Hidden が True なら表示しない
+        if "Hidden" in entries:
+            appinfo["show"] = False
+
+        # OnlyShowIn が設定されている場合の処理
+        if "OnlyShowIn" in entries:
+            # 環境変数$XDG_CURRENT_DESKTOP が設定されているか否かで分岐
+            if os.getenv("XDG_CURRENT_DESKTOP"): # 環境変数がある場合
+                # NotShowIn で表示しないよう設定されているなら表示しない
+                if entries.get("NotShowIn") == THIS_DESKTOP_NAME:
+                    appinfo["show"] = False
+            elif entries.get("OnlyShowIn") != THIS_DESKTOP_NAME:
+                # 環境変数がなくて、OnlyShowInで設定されていない場合、表示しない
+                appinfo["show"] = False
+
+        if "Name" in entries:
+            appinfo["default_name"] = entries["Name"]
+        else:
+            return None
+
+        if ("Name[" + options["lang_code"] + "]") in entries:
+            appinfo["locally_name"] = entries.get("Name[" + options["lang_code"] + "]")
+
+        if ("GenericName") in entries:
+            appinfo["default_generic_name"] = entries.get("GenericName")
+
+        if ("GenericName[" + options["lang_code"] + "]") in entries:
+            appinfo["locally_generic_name"] = entries.get("GenericName[" + options["lang_code"] + "]")
+
+        if ("Comment") in entries:
+            appinfo["default_comment"] = entries.get("Comment")
+
+        if ("Comment[" + options["lang_code"] + "]") in entries:
+            appinfo["locally_comment"] = entries.get("Comment[" + options["lang_code"] + "]")
+
+        if ("Path") in entries:
+            appinfo["cmd_working_dir"] = entries.get("Path")
+
+        if "Categories" in entries:
+            for category in entries.get("Categories", "").split(";"):
+                appinfo["categories"].append(category)
+
+        if "Icon" in entries:
+            appinfo["icon_name"] = entries.get("Icon")
+
+        if "Keywords" in entries:
+            appinfo["keywords"] = entries.get("Keywords")
+
+        if "Exec" in entries:
+            cmd = entries.get("Exec")
+
+            # TODO: TryExec に対応する
+
+            # {{{
+            # specifications.freedesktop.org/desktop-entry-spec/latest/exec-variables.html
+            # に従ったフィールドコードの展開
+            cmd = cmd.replace('%c', entries.get("Name"))
+
+            # ignore deprecated field
+            cmd = cmd.replace('%d', '')
+            cmd = cmd.replace('%D', '')
+            cmd = cmd.replace('%n', '')
+            cmd = cmd.replace('%N', '')
+            cmd = cmd.replace('%v', '')
+            cmd = cmd.replace('%m', '')
+            cmd = cmd.replace('%M', '')
+
+            # NOTE: メニューでは使わないので、[fFuU]は無視する
+            cmd = cmd.replace('%f', '')
+            cmd = cmd.replace('%F', '')
+            cmd = cmd.replace('%u', '')
+            cmd = cmd.replace('%U', '')
+
+            cmd = cmd.replace('%k', desktop_file_path)
+
+            if '%i' in cmd:
+                icon_path = self.xdgicon.into_icon_path(appinfo["icon_name"])
+                if icon_path:
+                    cmd = cmd.replace('%i', '--icon ' + icon_path)
+                else:
+                    cmd = cmd.replace('%i', '')
+            # }}}
+
+            # Terminal での起動が有効かの処理
+            if entries.get("Terminal", "").lower() == "true":
+                cmd = (
+                        "" if appinfo["cmd_working_dir"] is None else ("PWD='" + appinfo["cmd_working_dir"] + "' ")
+                    ) + options["terminal"] +  ' -e ' + cmd
+
+            appinfo["cmd"] = cmd
+        elif entries.get("Type") == "Link" and entries.get("URL") != None:
+            appinfo["cmd"] = "if type xdg-open;then " + options["terminal"] + " -e 'xdg-open' " + entries.get("URL") + ";else exit 1;fi"
+
+        # TODO: Additional applications actions
+        # specifications.freedesktop.org/desktop-entry-spec/latest/extra-actions.html
+
+        return appinfo
+
+
+class App:
+    WIDTH = 800
+    HEIGHT = 600
+
+    def __init__(self):
+        GLib.set_prgname('com.github.osamummu.applauncher')
+
+        self.window = Gtk.Window()
+        self.window.connect('destroy', Gtk.main_quit)
+
+        self.window.set_default_size(self.WIDTH, self.HEIGHT)
+        self.window.set_keep_above(True)
+        self.window.set_resizable(False)
+
+        self.prov = Gtk.CssProvider()
+        self.prov.load_from_data('#btn:focus { background-color: #07f; background-image: none; color: #fff; }')
+        Gtk.StyleContext.add_provider_for_screen(
+                Gdk.Screen.get_default(),
+                self.prov,
+                Gtk.STYLE_PROVIDER_PRIORITY_USER)
+
+        self.window_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=3)
+
+        self.window.add(self.window_box)
+
+        self.categ_menu_widget = Gtk.ListBox()
+        self.categ_menu_widget.set_selection_mode(Gtk.SelectionMode.SINGLE)
+        self.categ_menu_widget.connect('row-activated', self._on_category_activated)
+        self.categ_menu_widget.connect('key-press-event', self._on_categ_menu_widget_key_press)
+
+        self.right_side = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
+
+        self.searchbox_widget = Gtk.Entry()
+        self.app_list_widget = Gtk.Grid()
+        self.app_list_widget.connect('key-press-event', self._on_app_list_key_press)
+
+        self.scroll = Gtk.ScrolledWindow()
+        self.scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        self.scroll.add(self.app_list_widget)
+
+        self.window_box.pack_start(self.categ_menu_widget, False, False, 0)
+        self.window_box.pack_start(self.right_side, True, True, 0)
+
+        self.right_side.pack_start(self.searchbox_widget, False, False, 0)
+        self.right_side.pack_start(self.scroll, True, True, 0)
+
+        self._setup_apps()
+        self._setup_categ_menu_widget()
+        self._setup_searchbox_widget()
+
+
+    def _setup_searchbox_widget(self):
+        def on_text_change(searchbox_widget, data=None):
+            input_text = searchbox_widget.get_text()
+            if input_text == '': return
+            matches = [app_name for app_name in self.apps if re.search(f'{input_text}', app_name) is not None]
+            self._show_app_list(matches)
+
+        def on_press_enter(searchbox_widget, data=None):
+            self._select_first_item_of_app_list()
+
+        def on_key_press(searchbox_widget, event, data=None):
+            if event.keyval == Gdk.KEY_Escape:
+                self._focus_category_menu()
+
+        self.searchbox_widget.connect('changed', on_text_change)
+        self.searchbox_widget.connect('activate', on_press_enter)
+        self.searchbox_widget.connect('key-press-event', on_key_press)
+
+
+    def _select_app(self):
+        line = self.app_list_widget.sel_line
+        column = self.app_list_widget.sel_column
+
+        for app in self.app_list_widget.get_children():
+            if app.line == line and app.column == column:
+                app.grab_focus()
+
+
+    def _on_app_list_key_press(self, app_list_widget, event):
+        apps = self.app_list_widget.get_children()
+
+        MAX_COLUMNS = 5
+
+        rows = len(apps) // MAX_COLUMNS + 1
+        bottom_row_columns = len(apps) % MAX_COLUMNS
+
+        if event.keyval == Gdk.KEY_Escape:
+            self._focus_category_menu()
+        elif event.keyval == Gdk.KEY_j:
+            app_list_widget.sel_line += 1
+
+            if app_list_widget.sel_line >= rows:
+                app_list_widget.sel_line = 0
+            elif app_list_widget.sel_line == rows-1:
+                app_list_widget.sel_column = bottom_row_columns - 1
+
+            self._select_app()
+        elif event.keyval == Gdk.KEY_k:
+            app_list_widget.sel_line -= 1
+
+            if app_list_widget.sel_line < 0:
+                app_list_widget.sel_line = rows-1
+                if app_list_widget.sel_column >= bottom_row_columns:
+                    app_list_widget.sel_column = bottom_row_columns - 1
+
+            self._select_app()
+        elif event.keyval == Gdk.KEY_l:
+            app_list_widget.sel_column += 1
+
+            if app_list_widget.sel_column >= MAX_COLUMNS or (app_list_widget.sel_line == rows-1 and app_list_widget.sel_column >= bottom_row_columns):
+                app_list_widget.sel_column = 0
+
+            self._select_app()
+        elif event.keyval == Gdk.KEY_h:
+            app_list_widget.sel_column -= 1
+
+            # 左端なら、カテゴリメニューに戻る
+            if app_list_widget.sel_column < 0:
+                app_list_widget.sel_column = 0
+                self._focus_category_menu()
+            else:
+                self._select_app()
+        elif event.keyval == Gdk.KEY_s:
+            self._focus_searchbox_widget()
+
+
+        return False
+
+    def _focus_category_menu(self):
+        self.categ_menu_widget.get_selected_row().grab_focus()
+
+
+    def _on_categ_menu_widget_key_press(self, categ_menu_widget, event):
+        if event.keyval == Gdk.KEY_Escape:
+            Gtk.main_quit()
+        elif event.keyval == Gdk.KEY_j or event.keyval == Gdk.KEY_Down:
+            indx = categ_menu_widget.get_selected_row().get_index()
+            rows = categ_menu_widget.get_children()
+            if len(rows) <= indx+1:
+                categ_menu_widget.select_row(rows[0])
+            else:
+                categ_menu_widget.select_row(rows[indx+1])
+        elif event.keyval == Gdk.KEY_k or event.keyval == Gdk.KEY_Up:
+            indx = categ_menu_widget.get_selected_row().get_index()
+            rows = categ_menu_widget.get_children()
+            if 0 > indx-1:
+                categ_menu_widget.select_row(rows[len(rows)-1])
+            else:
+                categ_menu_widget.select_row(rows[indx-1])
+        elif event.keyval == Gdk.KEY_s:
+            self._focus_searchbox_widget()
+        elif event.keyval == Gdk.KEY_l or event.keyval == Gdk.KEY_Return:
+            categ_menu_widget.get_selected_row().emit('activate')
+
+        return True
+
+
+    def _setup_apps(self):
+        self.apps = {}
+        self.menu = {}
+
+        categories = {}
+
+        desktop = DesktopFile()
+        for app_name, path in desktop.iter_apps():
+            maybe_app_info = desktop.parse_desktop_file(path)
+            if maybe_app_info is None or maybe_app_info['show'] != True: continue
+
+            appinfo = maybe_app_info
+            self.apps[app_name] = appinfo
+            for categ in appinfo['categories']:
+                if not categ in categories:
+                    categories[categ] = set()
+                categories[categ].add(app_name)
+
+        # メニュー定義に従って、それぞれのメニューカテゴリにアプリを配属する
+        for elm in DEFAULT_MENU_DEFINITION:
+            categ_apps = set()
+            for categ in elm['categories_to_include']:
+                categ_apps = categ_apps | categories.get(categ, set())
+
+            if len(categ_apps) == 0:
+                continue
+
+            self.menu[elm["title"]] = sorted(list(categ_apps))
+
+
+    def _setup_categ_menu_widget(self):
+        menu_category_names = self.menu.keys()
+        for i, categ in enumerate(menu_category_names):
+            label = Gtk.Label(label=categ)
+            row = Gtk.ListBoxRow()
+            row.add(label)
+            self.categ_menu_widget.add(row)
+            if i == 0:
+                self.categ_menu_widget.select_row(row)
+
+
+    def _launch(self, cmd):
+        # gtk_launcher = shutil.which('gtk-launch')
+        cmd_list = cmd.strip(' ').split(' ')
+        cmd_list[0] = shutil.which(cmd_list[0])
+        sys.stdout.flush()
+        os.execv(cmd_list[0], cmd_list)
+
+
+    def _show_app_list(self, app_names: list[AppName]):
+        for widget in self.app_list_widget.get_children():
+            self.app_list_widget.remove(widget)
+
+        line_cnt = 0
+        column_cnt = 0
+        for app_name in app_names:
+            appinfo = self.apps[app_name]
+
+            btn_text = appinfo['locally_name']
+            if btn_text is None: btn_text = appinfo['default_name']
+
+            btn_cmd = lambda _, cmd=appinfo['cmd']: self._launch(cmd)
+
+            btn_box = Gtk.Box(spacing=2, orientation=Gtk.Orientation.VERTICAL)
+            btn_box.set_size_request(self.WIDTH//15, self.WIDTH//15)
+
+            icon = None
+            icon_name = appinfo['icon_name']
+            if os.path.isfile(icon_name):
+                pixbuf = GdkPixbuf.Pixbuf.new_from_file_at_scale(
+                        filename=icon_name,
+                        width=self.WIDTH//20,
+                        height=self.WIDTH//20,
+                        preserve_aspect_ratio=True)
+                icon = Gtk.Image.new_from_pixbuf(pixbuf)
+            elif icon_name == None:
+                icon = Gtk.Image(icon_name="image-missing")
+            else:
+                icon = Gtk.Image(icon_name=icon_name)
+            icon.set_pixel_size(self.WIDTH//20)
+
+            btn_label = Gtk.Label(label=btn_text)
+            btn_label.set_width_chars(10)
+            btn_label.set_max_width_chars(20)
+            btn_label.set_line_wrap(True)
+
+            btn_box.pack_start(icon, False, False, 0)
+            btn_box.pack_start(btn_label, False, False, 0)
+
+            btn = Gtk.Button(child=btn_box)
+            btn.set_name('btn')
+            btn.connect('clicked', btn_cmd)
+            btn.line = line_cnt
+            btn.column = column_cnt
+
+            self.app_list_widget.attach(btn, column_cnt, line_cnt, 1, 1)
+
+            column_cnt += 1
+            if column_cnt >= 5:
+                column_cnt = 0
+                line_cnt += 1
+
+        self.app_list_widget.show_all()
+
+    def _select_first_item_of_app_list(self):
+        # 最初の要素を選択する
+        apps = self.app_list_widget.get_children()
+        if len(apps) > 0:
+            first_item = apps[len(apps)-1]
+            first_item.grab_focus()
+            self.app_list_widget.sel_line = 0
+            self.app_list_widget.sel_column = 0
+
+
+    def _on_category_activated(self, _, sel_row):
+        for widget in self.app_list_widget.get_children():
+            self.app_list_widget.remove(widget)
+
+        sel_label = sel_row.get_children()[0]
+        sel_categ_name = sel_label.get_text()
+        app_names = self.menu[sel_categ_name]
+
+        self._show_app_list(app_names)
+        self._select_first_item_of_app_list()
+
+    def _focus_searchbox_widget(self):
+        self.searchbox_widget.grab_focus()
+
+
+    def start(self, with_search_mode=False):
+        self.window.show_all()
+        if with_search_mode:
+            self._focus_searchbox_widget()
+        Gtk.main()
+
+
+app = App()
+app.start()
+

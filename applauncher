@@ -7,6 +7,7 @@ gi.require_version('Gtk', '3.0')
 from gi.repository import Gtk, GdkPixbuf, Gdk, GObject, GLib
 from typing import Iterator
 import shutil
+import shlex
 import os
 import sys
 import glob
@@ -498,10 +499,12 @@ class App:
 
 
     def _launch(self, cmd):
-        # gtk_launcher = shutil.which('gtk-launch')
-        cmd_list = cmd.strip(' ').split(' ')
-        cmd_list[0] = shutil.which(cmd_list[0])
-        sys.stdout.flush()
+        cmd_list = shlex.split(cmd)
+        maybe_cmd_path = shutil.which(cmd_list[0])
+        if maybe_cmd_path is None:
+            # TODO: 適切な通知
+            return
+        cmd_list[0] = maybe_cmd_path
         os.execv(cmd_list[0], cmd_list)
 
 

@@ -499,6 +499,8 @@ class App:
 
 
     def _launch(self, cmd):
+        # TODO: pkexec での起動
+        # launcher_path = shutil.which('gio') # gio launch で起動する
         cmd_list = shlex.split(cmd)
         maybe_cmd_path = shutil.which(cmd_list[0])
         if maybe_cmd_path is None:

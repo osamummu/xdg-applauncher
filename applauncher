@@ -16,6 +16,7 @@ import subprocess
 
 
 
+# TODO: 設定ファイルかなにかで指定できるようにする
 THIS_DESKTOP_NAME = "sway"
 
 
@@ -137,7 +138,8 @@ class DesktopFile:
     def parse_desktop_file(
             self,
             desktop_file_path,
-            options = { "terminal": 'foot', "lang_code": 'ja' }
+            # TODO: オプションか何かで指定できるようにする
+            options = { "terminal": 'x-terminal-emulator', "lang_code": 'ja' }
     ) -> dict|None:
         appinfo = {
             "show":                 True,

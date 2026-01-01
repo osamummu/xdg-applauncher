@@ -4,7 +4,7 @@ A simple XDG desktop file launcher written in Python.
 ## Features
 - Categorized menu display
 - Vi-like key binds
-- Application search
+- Regex search
 
 ## Requirements
 - Python3

@@ -84,6 +84,17 @@ DEFAULT_MENU_DEFINITION = [
 ]
 
 
+######################################################################
+# 型を定義
+######################################################################
+AppName: type = str
+DesktopFilePath: type = str
+
+
+
+######################################################################
+# アイコン名から、アイコンファイルのパスを得る機能
+######################################################################
 class XdgIcon:
     def __init__(self):
         self.icon_theme = Gtk.IconTheme.get_default()
@@ -92,8 +103,8 @@ class XdgIcon:
         if os.path.isfile(icon_name):
             return icon_name
 
-        maybe_iconinfo = self.icon_theme \
-            .lookup_icon(icon_name, 32, 0) \
+        # NOTE: アイコンサイズが32であるのに、これといった理由はない
+        maybe_iconinfo = self.icon_theme.lookup_icon(icon_name, 32, 0)
 
         if maybe_iconinfo is None: return
         iconinfo = maybe_iconinfo
@@ -101,9 +112,10 @@ class XdgIcon:
         return iconinfo.get_filename()
 
 
-AppName: type = str
-DesktopFilePath: type = str
 
+######################################################################
+# desktopファイルを処理する機能
+######################################################################
 class DesktopFile:
     DEFAULT_DESKTOP_FILE_DIRS = [
         "~/.local/share" + "/applications/",
@@ -269,35 +281,37 @@ class DesktopFile:
         return appinfo
 
 
+
+######################################################################
+# GUIなど
+# TODO: カオスなので時間があれば整理したい
+######################################################################
 class App:
+    # NOTE: ↓ この数値にした理由は特にない
     WIDTH = 800
     HEIGHT = 600
 
+    APP_ID = 'com.github.osamummu.applauncher'
+
+
     def __init__(self):
-        GLib.set_prgname('com.github.osamummu.applauncher')
+        # app_id を設定
+        GLib.set_prgname(self.APP_ID)
+
+        self.apps = {}
+        self.menu = {}
+        self._setup_apps()
 
         self.window = Gtk.Window()
-        self.window.connect('destroy', Gtk.main_quit)
+        self._setup_window_widget()
 
-        self.window.set_default_size(self.WIDTH, self.HEIGHT)
-        self.window.set_keep_above(True)
-        self.window.set_resizable(False)
-
-        self.prov = Gtk.CssProvider()
-        self.prov.load_from_data('#btn:focus { background-color: #07f; background-image: none; color: #fff; }')
-        Gtk.StyleContext.add_provider_for_screen(
-                Gdk.Screen.get_default(),
-                self.prov,
-                Gtk.STYLE_PROVIDER_PRIORITY_USER)
+        self._improve_focus_visibility()
 
         self.window_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=3)
-
         self.window.add(self.window_box)
 
         self.categ_menu_widget = Gtk.ListBox()
-        self.categ_menu_widget.set_selection_mode(Gtk.SelectionMode.SINGLE)
-        self.categ_menu_widget.connect('row-activated', self._on_category_activated)
-        self.categ_menu_widget.connect('key-press-event', self._on_categ_menu_widget_key_press)
+        self._setup_categ_menu_widget()
 
         self.right_side = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
 
@@ -314,10 +328,24 @@ class App:
 
         self.right_side.pack_start(self.searchbox_widget, False, False, 0)
         self.right_side.pack_start(self.scroll, True, True, 0)
-
-        self._setup_apps()
-        self._setup_categ_menu_widget()
         self._setup_searchbox_widget()
+
+
+    def _improve_focus_visibility(self):
+        # NOTE: GTKの元のstyleでは見づらいので、見やすくしている
+        self.prov = Gtk.CssProvider()
+        self.prov.load_from_data('#btn:focus { background-color: #07f; background-image: none; color: #fff; }')
+        Gtk.StyleContext.add_provider_for_screen(
+                Gdk.Screen.get_default(),
+                self.prov,
+                Gtk.STYLE_PROVIDER_PRIORITY_USER)
+
+
+    def _setup_window_widget(self):
+        self.window.connect('destroy', Gtk.main_quit)
+        self.window.set_default_size(self.WIDTH, self.HEIGHT)
+        self.window.set_keep_above(True)
+        self.window.set_resizable(False)
 
 
     def _setup_searchbox_widget(self):
@@ -428,9 +456,6 @@ class App:
 
 
     def _setup_apps(self):
-        self.apps = {}
-        self.menu = {}
-
         categories = {}
 
         desktop = DesktopFile()
@@ -458,6 +483,10 @@ class App:
 
 
     def _setup_categ_menu_widget(self):
+        self.categ_menu_widget.set_selection_mode(Gtk.SelectionMode.SINGLE)
+        self.categ_menu_widget.connect('row-activated', self._on_category_activated)
+        self.categ_menu_widget.connect('key-press-event', self._on_categ_menu_widget_key_press)
+
         menu_category_names = self.menu.keys()
         for i, categ in enumerate(menu_category_names):
             label = Gtk.Label(label=categ)
@@ -563,6 +592,11 @@ class App:
         Gtk.main()
 
 
-app = App()
-app.start()
+
+######################################################################
+# メイン処理
+######################################################################
+if __name__ == '__main__':
+    app = App()
+    app.start()
 

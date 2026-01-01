@@ -421,7 +421,7 @@ class App:
                 self._focus_category_menu()
             else:
                 self._select_app()
-        elif event.keyval == Gdk.KEY_s:
+        elif event.keyval == Gdk.KEY_slash:
             self._focus_searchbox_widget()
 
 
@@ -448,7 +448,7 @@ class App:
                 categ_menu_widget.select_row(rows[len(rows)-1])
             else:
                 categ_menu_widget.select_row(rows[indx-1])
-        elif event.keyval == Gdk.KEY_s:
+        elif event.keyval == Gdk.KEY_slash:
             self._focus_searchbox_widget()
         elif event.keyval == Gdk.KEY_l or event.keyval == Gdk.KEY_Return:
             categ_menu_widget.get_selected_row().emit('activate')

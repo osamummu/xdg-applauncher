@@ -31,7 +31,7 @@ You can use the following key operations:
 | j            | Move cursor down                                    |
 | l            | Move cursor right / Go to the application selection |
 | h            | Move cursor left / Quit the application selection   |
-| s            | Focus search box                                    |
+| /            | Focus search box                                    |
 | Esc          | Exit program / Quit the application selection       |
 
 ## License

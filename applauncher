@@ -3,9 +3,10 @@
 
 import gi
 gi.require_version('GLib', '2.0')
+gi.require_version('GioUnix', '2.0')
 gi.require_version('Gtk', '3.0')
-from gi.repository import Gtk, GdkPixbuf, Gdk, GObject, GLib
-from typing import Iterator
+from gi.repository import Gtk, GdkPixbuf, Gdk, GObject, GLib, GioUnix
+from typing import Iterator, NoReturn
 import shutil
 import shlex
 import os
@@ -167,6 +168,7 @@ class DesktopFile:
             "cmd":                  None,
             "icon_name":            None,
             "cmd_working_dir":      None,
+            "desktop_file_path":    desktop_file_path,
         }
 
         import configparser
@@ -498,15 +500,25 @@ class App:
                 self.categ_menu_widget.select_row(row)
 
 
-    def _launch(self, cmd):
+    def _launch_from_file_path(self, desktop_file_path) -> NoReturn|None:
+        g_desktop_appinfo = GioUnix.DesktopAppInfo.new_from_filename(desktop_file_path)
+        if g_desktop_appinfo is None:
+            return None
+        if g_desktop_appinfo.launch(None, None) is True:
+            self.window.hide()
+
+
+    def _launch_from_command(self, cmd) -> NoReturn|None:
         # TODO: pkexec での起動
         # launcher_path = shutil.which('gio') # gio launch で起動する
         cmd_list = shlex.split(cmd)
         maybe_cmd_path = shutil.which(cmd_list[0])
         if maybe_cmd_path is None:
-            # TODO: 適切な通知
-            return
+            return None
         cmd_list[0] = maybe_cmd_path
+
+        Gtk.main_quit()
+        sys.stdout.flush() # NOTE: os.execvは戻ってこないため
         os.execv(cmd_list[0], cmd_list)
 
 
@@ -522,7 +534,16 @@ class App:
             btn_text = appinfo['locally_name']
             if btn_text is None: btn_text = appinfo['default_name']
 
-            btn_cmd = lambda _, cmd=appinfo['cmd']: self._launch(cmd)
+            def launch_app(_, cmd=appinfo['cmd'], file_path=appinfo['desktop_file_path']):
+                error = False
+
+                error = self._launch_from_command(cmd)
+                # error = self._launch_from_file_path(file_path)
+
+                if error is None:
+                    # TODO: 適切な通知
+                    pass
+
 
             btn_box = Gtk.Box(spacing=2, orientation=Gtk.Orientation.VERTICAL)
             btn_box.set_size_request(self.WIDTH//15, self.WIDTH//15)

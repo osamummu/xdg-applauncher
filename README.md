@@ -9,7 +9,7 @@ A simple XDG desktop file launcher written in Python.
 ## Requirements
 - Python3
 - GTK3
-- Python bindings for GTK3
+- Python bindings for GTK3 (PyGObject)
 - xdg-open
 
 If you are using a typical desktop environment on a stable version of the distribution,

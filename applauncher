@@ -573,7 +573,7 @@ class App:
 
             btn = Gtk.Button(child=btn_box)
             btn.set_name('btn')
-            btn.connect('clicked', btn_cmd)
+            btn.connect('clicked', launch_app)
             btn.line = line_cnt
             btn.column = column_cnt
 

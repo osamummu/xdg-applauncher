@@ -355,7 +355,27 @@ class App:
         def on_text_change(searchbox_widget, data=None):
             input_text = searchbox_widget.get_text()
             if input_text == '': return
-            matches = [app_name for app_name in self.apps if re.search(f'{input_text}', app_name) is not None]
+
+            search_rule = [
+                    { 'priority': 0, 'appinfo-key': 'app_name' },
+                    { 'priority': 1, 'appinfo-key': 'locally_name' },
+                    { 'priority': 2, 'appinfo-key': 'default_name' },
+                    { 'priority': 3, 'appinfo-key': 'default_generic_name' },
+                    { 'priority': 4, 'appinfo-key': 'locally_generic_name' },
+                    { 'priority': 5, 'appinfo-key': 'keywords' },
+                    { 'priority': 6, 'appinfo-key': 'locally_comment' },
+                    { 'priority': 7, 'appinfo-key': 'default_comment' },
+            ]
+            unsorted_matches = []
+            for app_name, appinfo in self.apps.items():
+                for rule in search_rule:
+                    target_data = appinfo.get(rule['appinfo-key'])
+                    if target_data is None: continue
+                    if re.search(input_text, target_data, re.IGNORECASE):
+                        unsorted_matches.append( (rule['priority'], app_name) )
+                        break
+            matches = [v[1] for v in sorted(unsorted_matches, key=lambda elm: elm[0])]
+
             self._show_app_list(matches)
 
         def on_press_enter(searchbox_widget, data=None):

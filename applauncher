@@ -152,8 +152,9 @@ class DesktopFile:
     def parse_desktop_file(
             self,
             desktop_file_path,
-            # TODO: オプションか何かで指定できるようにする
-            options = { "terminal": 'x-terminal-emulator', "lang_code": 'ja' }
+            app_name,
+            terminal = os.getenv('TERMINAL', 'x-terminal-emulator'),
+            lang_code = None,
     ) -> dict|None:
         appinfo = {
             "show":                 True,
@@ -169,6 +170,7 @@ class DesktopFile:
             "icon_name":            None,
             "cmd_working_dir":      None,
             "desktop_file_path":    desktop_file_path,
+            "app_name":             app_name,
         }
 
         import configparser
@@ -205,20 +207,19 @@ class DesktopFile:
         else:
             return None
 
-        if ("Name[" + options["lang_code"] + "]") in entries:
-            appinfo["locally_name"] = entries.get("Name[" + options["lang_code"] + "]")
+        if lang_code:
+            if ("Name[" + lang_code + "]") in entries:
+                appinfo["locally_name"] = entries.get("Name[" + lang_code + "]")
+            if ("GenericName[" + lang_code + "]") in entries:
+                appinfo["locally_generic_name"] = entries.get("GenericName[" + lang_code + "]")
+            if ("Comment[" + lang_code + "]") in entries:
+                appinfo["locally_comment"] = entries.get("Comment[" + lang_code + "]")
 
         if ("GenericName") in entries:
             appinfo["default_generic_name"] = entries.get("GenericName")
 
-        if ("GenericName[" + options["lang_code"] + "]") in entries:
-            appinfo["locally_generic_name"] = entries.get("GenericName[" + options["lang_code"] + "]")
-
         if ("Comment") in entries:
             appinfo["default_comment"] = entries.get("Comment")
-
-        if ("Comment[" + options["lang_code"] + "]") in entries:
-            appinfo["locally_comment"] = entries.get("Comment[" + options["lang_code"] + "]")
 
         if ("Path") in entries:
             appinfo["cmd_working_dir"] = entries.get("Path")
@@ -272,11 +273,11 @@ class DesktopFile:
             if entries.get("Terminal", "").lower() == "true":
                 cmd = (
                         "" if appinfo["cmd_working_dir"] is None else ("PWD='" + appinfo["cmd_working_dir"] + "' ")
-                    ) + options["terminal"] +  ' -e ' + cmd
+                    ) + terminal +  ' -e ' + cmd
 
             appinfo["cmd"] = cmd
         elif entries.get("Type") == "Link" and entries.get("URL") != None:
-            appinfo["cmd"] = "if type xdg-open;then " + options["terminal"] + " -e 'xdg-open' " + entries.get("URL") + ";else exit 1;fi"
+            appinfo["cmd"] = "if type xdg-open;then " + terminal + " -e 'xdg-open' " + entries.get("URL") + ";else exit 1;fi"
 
         # TODO: Additional applications actions
         # specifications.freedesktop.org/desktop-entry-spec/latest/extra-actions.html
@@ -481,9 +482,13 @@ class App:
     def _setup_apps(self):
         categories = {}
 
+        lang_code = os.environ.get('LANG', '').split('_')[0]
+        if lang_code == '':
+            lang_code = None
+
         desktop = DesktopFile()
         for app_name, path in desktop.iter_apps():
-            maybe_app_info = desktop.parse_desktop_file(path)
+            maybe_app_info = desktop.parse_desktop_file(path, app_name, lang_code = lang_code)
             if maybe_app_info is None or maybe_app_info['show'] != True: continue
 
             appinfo = maybe_app_info
